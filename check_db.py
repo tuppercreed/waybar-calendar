@@ -4,6 +4,8 @@ from datetime import datetime, date, time, timedelta
 import sys, os
 import json
 
+SEARCH_DATE = "2021-06-29"
+
 
 def read_sqlite_datetime(datetimebyte):
     return datetime.fromisoformat(datetimebyte.decode())
@@ -12,15 +14,13 @@ def read_sqlite_datetime(datetimebyte):
 sqlite3.register_converter("datetime", read_sqlite_datetime)
 
 
-def find_time_bound(local_tz):
-    """now_local_start = local_tz.localize(datetime(2021, 7, 14))
-    now_local_end = now_local_start + timedelta(1)
-    now_start = now_local_start.astimezone(pytz.utc)
-    now_end = now_local_end.astimezone(pytz.utc)
-
-    return now_start, now_end"""
-    start = datetime.combine(datetime.now().date(), datetime.min.time()) - timedelta(200)
-    end = start + timedelta(50)
+def find_time_bound(local_tz, custom_search=False):
+    if custom_search:
+        local_start = local_tz.localize(datetime.strptime(SEARCH_DATE, "%Y-%m-%d"))
+    else:
+        local_start = local_tz.localize(datetime.combine(datetime.now().date(), datetime.min.time()))
+    start = local_start.astimezone(pytz.utc)
+    end = start + timedelta(1)
 
     return start, end
 
@@ -39,9 +39,8 @@ def read(start, end):
 
 
 def main():
-
     local_tz = pytz.timezone("Australia/Melbourne")
-    start, end = find_time_bound(local_tz)
+    start, end = find_time_bound(local_tz, custom_search=False)
     data = read(start, end)
 
     if len(data) == 1:
@@ -53,11 +52,18 @@ def main():
             # "time_diff": int(
             #    (event_list[0] - local_tz.localize(datetime.now()).astimezone(pytz.utc)).total_seconds() / 60
             # ),
-            "time_diff": int((event_list[0] - local_tz.localize(start)).total_seconds() / 60),
+            "time_diff": int((event_list[0] - start).total_seconds() / 60),
         }
 
+        if info["time_diff"] > 60:
+            hours = int(info["time_diff"] / 60)
+            mins = int(info["time_diff"] - hours * 60)
+            upcoming = f"{hours} hours and {mins} minutes"
+        else:
+            upcoming = f"{int(info['time_diff'])} minutes"
+
         d = {
-            "text": f"Next event: {info['title']} starting in {info['time_diff']} minutes",
+            "text": f"Next event: {info['title']} starting in {upcoming}",
             "alt": "Alt-text",
             "tooltip": "This is a toooltip",
         }
