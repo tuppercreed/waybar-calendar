@@ -14,3 +14,9 @@ See [example config](example_config.json):
     }
 }
 ```
+
+Todo:
+- Calendar reading from Google url
+- Multi-calendar support
+- Prettier widget config / css
+- Timezone configuration
