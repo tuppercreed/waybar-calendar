@@ -1,3 +1,12 @@
+# Google creds
+token.json
+secrets.json
+
+# Dev sample
+cal.db
+example.ics
+
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
