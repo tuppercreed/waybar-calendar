@@ -58,7 +58,11 @@ def main():
         if info["time_diff"] > 60:
             hours = int(info["time_diff"] / 60)
             mins = int(info["time_diff"] - hours * 60)
-            upcoming = f"{hours} hours and {mins} minutes"
+            if mins > 0:
+                mins_str = f" and {mins} minutes"
+            else:
+                mins_str = ""
+            upcoming = f"{hours} hours{mins_str}"
         else:
             upcoming = f"{int(info['time_diff'])} minutes"
 
