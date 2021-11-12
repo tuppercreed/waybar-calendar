@@ -65,15 +65,29 @@ def getEvent(calendar_id):
                 calendarId=calendar_id,
                 timeMin=now,
                 maxResults=10,
-                # singleEvents=True,
-                # orderBy='startTime',
+                singleEvents=True,
+                orderBy="startTime",
                 pageToken=page_token,
             )
             .execute()
         )
         found_events += len(events)
+        event_tuples = []
         for event in events["items"]:
+            if "dateTime" in event["start"]:
+                start = event["start"]["dateTime"]
+                end = event["end"]["dateTime"]
+                type_name = "timed"
+            else:
+                start = event["start"]["date"]
+                end = event["end"]["date"]
+                type_name = "allday"
+            event_tuple = (event["id"], calendar_id, start, end, event["summary"], type_name)
+            event_tuples.append(event_tuple)
             print(f"---- Event: {event['summary']} at {event['start']} ending {event['end']}")
+
+        write_sql_events(event_tuples)
+
         page_token = events.get("nextPageToken")
         if not page_token or found_events > 5:
             break
@@ -90,6 +104,27 @@ def write_sql_calendars(calendars):
     )
     cur.executemany("INSERT OR REPLACE INTO calendars (id, summary, timeZone) VALUES (?, ?, ?)", calendars)
     con.commit()
+
+    con.close()
+
+
+def write_sql_events(events):
+    dir_path = os.path.dirname(os.path.realpath(__file__))
+    path = f"{dir_path}/cal.db"
+    con = sqlite3.connect(path)
+    cur = con.cursor()
+
+    cur.execute(
+        "CREATE TABLE IF NOT EXISTS events (uid TEXT PRIMARY KEY NOT NULL, calendar_id TEXT, start TEXT, end TEXT, title TEXT, description TEXT, type TEXT, UNIQUE(uid));"
+    )
+
+    cur.executemany(
+        "INSERT OR REPLACE INTO events (uid, calendar_id, start, end, title, type) VALUES (?, ?, ?, ?, ?, ?)", events
+    )
+
+    con.commit()
+
+    con.close()
 
 
 if __name__ == "__main__":
