@@ -1,4 +1,4 @@
-import os.path
+import os, sqlite3
 from datetime import datetime, timezone
 
 from google.auth import credentials
@@ -79,11 +79,27 @@ def getEvent(calendar_id):
             break
 
 
+def write_sql_calendars(calendars):
+    dir_path = os.path.dirname(os.path.realpath(__file__))
+    path = f"{dir_path}/cal.db"
+    con = sqlite3.connect(path)
+    cur = con.cursor()
+
+    cur.execute(
+        "CREATE TABLE IF NOT EXISTS calendars (id TEXT PRIMARY KEY NOT NULL, summary TEXT, timeZone TEXT, active INTEGER, UNIQUE(id));"
+    )
+    cur.executemany("INSERT OR REPLACE INTO calendars (id, summary, timeZone) VALUES (?, ?, ?)", calendars)
+    con.commit()
+
+
 if __name__ == "__main__":
     creds = authorize("secrets.json")
     service = build("calendar", "v3", credentials=creds)
 
     calendar_list = getCalendarList()
+    calendars = [(cal["id"], cal["summary"], cal["timeZone"]) for cal in calendar_list["items"]]
+
+    write_sql_calendars(calendars)
 
     for calendar_list_entry in calendar_list["items"]:
         print(f"Calendar: {calendar_list_entry['summary']}")
