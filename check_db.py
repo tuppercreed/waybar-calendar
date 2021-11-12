@@ -20,7 +20,7 @@ def find_time_bound(local_tz, custom_search=False):
     else:
         local_start = local_tz.localize(datetime.combine(datetime.now().date(), datetime.min.time()))
     start = local_start.astimezone(pytz.utc)
-    end = start + timedelta(1)
+    end = start + timedelta(100)
 
     return start, end
 
@@ -32,7 +32,7 @@ def read(start, end):
     cur = con.cursor()
 
     results = cur.execute(
-        "SELECT start AS 'start [datetime]', end AS 'end [datetime]', title FROM events WHERE start BETWEEN ? AND ? AND type = 'timed' ORDER BY start LIMIT 1",
+        "SELECT start AS 'start [datetime]', end AS 'end [datetime]', title, active FROM events INNER JOIN calendars ON events.calendar_id = calendars.id WHERE start BETWEEN ? AND ? AND type = 'timed' AND active = 1 ORDER BY start LIMIT 1",
         (start, end),
     )
     return list(results)
