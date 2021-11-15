@@ -1,10 +1,14 @@
 import sys
+from datetime import datetime, timedelta
+
 import gi
 
 gi.require_version("Gtk", "3.0")
 from gi.repository import Gtk, Gio, GLib
 
-from cal import Calendar, Calendars
+from cal import Calendar, Calendars, Event, Events
+
+TZ_NAME = "Australia/Melbourne"
 
 
 class DialogCal(Gtk.Dialog):
@@ -60,6 +64,25 @@ class MyWindow(Gtk.Window):
         button = Gtk.Button(label="open dialog")
         button.connect("clicked", self.on_button_clicked)
         box_outer.pack_start(button, True, True, 0)
+
+        start = datetime.utcnow()
+        end = start + timedelta(150)
+        events = Events(window=(start, end), limit=5)
+
+        for event in events:
+            box_event = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+            name = Gtk.Label(label=event.name)
+            date_event = Gtk.Label(label=event.local_start(TZ_NAME).strftime("%Y-%m-%d"))
+            time = Gtk.Label(
+                label=f"{event.local_start(TZ_NAME).strftime('%X')} - {event.local_end(TZ_NAME).strftime('%X')}"
+            )
+            description = Gtk.Label(label=event.description)
+
+            packs = (name, date_event, time, description)
+
+            for widget in packs:
+                box_event.pack_start(widget, True, True, 0)
+            box_outer.pack_start(box_event, True, True, 0)
 
     def on_button_clicked(self, widget):
         calendars = Calendars()
