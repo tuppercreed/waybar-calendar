@@ -7,6 +7,8 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib import flow
 from googleapiclient.discovery import build
 
+from cal import Calendar, Calendars
+
 
 def authorize(cred_path, launch_browser=True):
     creds = None
@@ -132,9 +134,29 @@ if __name__ == "__main__":
     service = build("calendar", "v3", credentials=creds)
 
     calendar_list = getCalendarList()
-    calendars = [(cal["id"], cal["summary"], cal["timeZone"]) for cal in calendar_list["items"]]
 
-    write_sql_calendars(calendars)
+    vars = {
+        "id": "id",
+        "summary": "name",
+        "description": "description",
+        "timeZone": "time_zone",
+        "selected": "active",
+    }
+    cals = []
+
+    for calendar in calendar_list["items"]:
+        found_vars = {}
+        for var, name in vars.items():
+            if var in calendar:
+                found_vars[name] = calendar[var]
+        if "summaryOverride" in calendar:
+            found_vars["name"] = calendar["summaryOverride"]
+
+        cals.append(Calendar(**found_vars))
+
+    if len(cals) > 0:
+        calendars = Calendars(cals)
+        calendars.write()
 
     for calendar_list_entry in calendar_list["items"]:
         print(f"Calendar: {calendar_list_entry['summary']}")
