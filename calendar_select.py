@@ -1,4 +1,5 @@
 import sys, json, sqlite3, os
+from typing import NamedTuple
 from PyQt5 import QtWidgets
 from PyQt5.QtWidgets import (
     QApplication,
@@ -16,6 +17,12 @@ from PyQt5.QtCore import Qt
 from lib.switch import Switch
 
 
+class Calendar(NamedTuple):
+    id: str
+    summary: str
+    active: bool
+
+
 class sql_calendar:
     def __init__(self):
         dir_path = os.path.dirname(os.path.realpath(__file__))
@@ -28,6 +35,9 @@ class sql_calendar:
     def read(self):
         self._connect()
         results = list(self.cur.execute("SELECT id, summary, active FROM calendars;"))
+
+        results = [Calendar(id=result[0], summary=result[1], active=bool(result[2])) for result in results]
+
         self.con.close()
         return results
 
