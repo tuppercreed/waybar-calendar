@@ -50,6 +50,13 @@ class DialogCal(Gtk.Dialog):
 
         self.show_all()
 
+        def sort_func(row_1, row_2, data, notify_destroy):
+            text_1 = row_1.get_child().get_children()[1].get_active()
+            text_2 = row_2.get_child().get_children()[1].get_active()
+            return text_1 < text_2
+
+        listbox.set_sort_func(sort_func, None, False)
+
 
 class MyWindow(Gtk.Window):
     def __init__(self, *args, **kwargs):
@@ -61,28 +68,36 @@ class MyWindow(Gtk.Window):
         box_outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         self.add(box_outer)
 
-        button = Gtk.Button(label="open dialog")
-        button.connect("clicked", self.on_button_clicked)
-        box_outer.pack_start(button, True, True, 0)
-
         start = datetime.utcnow()
         end = start + timedelta(150)
         events = Events(window=(start, end), limit=5)
 
+        blurb = Gtk.Label(label="Upcoming events:", xalign=0)
+        box_outer.pack_start(blurb, True, True, 0)
+
         for event in events:
             box_event = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
-            name = Gtk.Label(label=event.name)
-            date_event = Gtk.Label(label=event.local_start(TZ_NAME).strftime("%Y-%m-%d"))
-            time = Gtk.Label(
-                label=f"{event.local_start(TZ_NAME).strftime('%X')} - {event.local_end(TZ_NAME).strftime('%X')}"
-            )
-            description = Gtk.Label(label=event.description)
 
-            packs = (name, date_event, time, description)
+            widgets = []
+            widgets.append(Gtk.Label(label=event.name, xalign=0))
+            widgets.append(Gtk.Label(label=event.local_start(TZ_NAME).strftime("%Y-%m-%d"), xalign=0))
+            if type(event.start) is datetime:
+                widgets.append(
+                    Gtk.Label(
+                        label=f"{event.local_start(TZ_NAME).strftime('%H:%M')} - {event.local_end(TZ_NAME).strftime('%H:%M')}",
+                        xalign=0,
+                    )
+                )
+            if event.description is not None:
+                widgets.append(Gtk.Label(label=event.description, xalign=0))
 
-            for widget in packs:
+            for widget in widgets:
                 box_event.pack_start(widget, True, True, 0)
-            box_outer.pack_start(box_event, True, True, 0)
+            box_outer.pack_start(box_event, True, True, 5)
+
+        button = Gtk.Button(label="Configure Calendars")
+        button.connect("clicked", self.on_button_clicked)
+        box_outer.pack_start(button, True, True, 0)
 
     def on_button_clicked(self, widget):
         calendars = Calendars()
