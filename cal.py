@@ -1,6 +1,7 @@
 import os, sqlite3
 from collections.abc import MutableSequence
 import datetime
+import pytz
 from sqlite3.dbapi2 import PARSE_DECLTYPES
 from typing import NamedTuple, Optional
 
@@ -12,20 +13,10 @@ def cal_factory(cursor, row):
     return Calendar(*row)
 
 
-def adapt_timezone(timezone):
-    return repr(timezone)
-
-
-def convert_timezone(timezone):
-    return eval(timezone)
-
-
 def convert_bool(boolean):
-    return bool(boolean)
+    return bool(int(boolean))
 
 
-sqlite3.register_adapter(datetime.timezone, adapt_timezone)
-sqlite3.register_converter("timezone", convert_timezone)
 sqlite3.register_converter("bool", convert_bool)
 
 
@@ -37,7 +28,7 @@ class Calendar(NamedTuple):
     name: str
 
     description: Optional[str] = None
-    time_zone: datetime.timezone = datetime.timezone.utc
+    time_zone: str = pytz.utc.zone
     active: bool = False
 
 
@@ -105,9 +96,9 @@ class Calendars(MutableSequence):
 
 if __name__ == "__main__":
 
-    cal = Calendar(
-        "1", "The first calendar", "Such a long description", datetime.timezone(datetime.timedelta(0), "A"), True
-    )
+    cals = Calendars()
+
+    cal = Calendar("1", "The first calendar", "Such a long description", "US/Eastern", True)
     cal2 = Calendar("2", "Second cal")
 
     cals = Calendars([cal, cal2])
