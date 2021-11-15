@@ -16,40 +16,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt
 from lib.switch import Switch
 
-
-class Calendar(NamedTuple):
-    id: str
-    summary: str
-    active: bool
-
-
-class sql_calendar:
-    def __init__(self):
-        dir_path = os.path.dirname(os.path.realpath(__file__))
-        self.path = f"{dir_path}/cal.db"
-
-    def _connect(self):
-        self.con = sqlite3.connect(self.path)
-        self.cur = self.con.cursor()
-
-    def read(self):
-        self._connect()
-        results = list(self.cur.execute("SELECT id, summary, active FROM calendars;"))
-
-        results = [Calendar(id=result[0], summary=result[1], active=bool(result[2])) for result in results]
-
-        self.con.close()
-        return results
-
-    def write(self, active, inactive):
-        self._connect()
-        active_string = ",".join(["?"] * len(active))
-        self.cur.execute(f"UPDATE calendars SET active=1 WHERE id IN ({active_string})", active)
-        inactive_string = ",".join(["?"] * len(inactive))
-        self.cur.execute(f"UPDATE calendars SET active=0 WHERE id IN ({inactive_string})", inactive)
-
-        self.con.commit()
-        self.con.close()
+from cal import Calendar, Calendars
 
 
 class Dialog(QDialog):
@@ -58,12 +25,14 @@ class Dialog(QDialog):
     _sample_items = ["asdffs", "Thing two", "3rd goes here", "Numba 4", "Fifth and most elegant"]
     _switches = {}
 
-    def __init__(self, names=None, parent=None):
+    def __init__(self, calendars=None, parent=None):
         super().__init__(parent)
         self.setWindowTitle("QDialog")
         # self.setModal(True)
         # self.setGeometry(200, 200, 200, 200)
         self.setFixedSize(300, 450)
+
+        self.calendars = calendars
 
         formContainer = QWidget()
         formLayout = QFormLayout()
@@ -71,14 +40,14 @@ class Dialog(QDialog):
         formLayout.setRowWrapPolicy(QFormLayout.WrapLongRows)
         formLayout.maximumSize()
 
-        for item in names:
-            self._switches[item[0]] = Switch(thumb_radius=11, track_radius=8)
-            if item[2]:
-                self._switches[item[0]].setChecked(True)
+        for cal in self.calendars:
+            self._switches[cal.id] = Switch(thumb_radius=11, track_radius=8)
+            if cal.active:
+                self._switches[cal.id].setChecked(True)
             # self._switches[item].toggled.connect(lambda c: print("toggled", c))
-            label = QLabel(f"{item[1]}:")
+            label = QLabel(f"{cal.name}:")
             label.setMaximumWidth(200)
-            formLayout.addRow(label, self._switches[item[0]])
+            formLayout.addRow(label, self._switches[cal[0]])
 
         formContainer.setLayout(formLayout)
         formContainer.setMaximumWidth(275)
@@ -101,12 +70,28 @@ class Dialog(QDialog):
         btns.rejected.connect(self.rejected)
 
     def accepted(self):
+        results = {key: switch.isChecked() for key, switch in self._switches.items()}
 
-        checked = [id for id, switch in self._switches.items() if switch.isChecked()]
-        not_checked = [id for id, switch in self._switches.items() if not switch.isChecked()]
+        overwrites = []
+        for i, cal in enumerate(self.calendars):
+            if cal.active != results[cal.id]:
+                overwrites.append(
+                    (
+                        i,
+                        Calendar(
+                            id=cal.id,
+                            name=cal.name,
+                            description=cal.description,
+                            time_zone=cal.time_zone,
+                            active=results[cal.id],
+                        ),
+                    )
+                )
 
-        cal = sql_calendar()
-        cal.write(checked, not_checked)
+        for overwrite in overwrites:
+            calendars[overwrite[0]] = overwrite[1]
+        if len(overwrites) > 0:
+            calendars.write()
 
         print("Accepted")
         self.close()
@@ -117,11 +102,10 @@ class Dialog(QDialog):
 
 
 if __name__ == "__main__":
-    cal = sql_calendar()
-    names = cal.read()
+    calendars = Calendars()
 
     app = QApplication(sys.argv)
     app.setStyle("breeze")
-    dlg = Dialog(names=names)
+    dlg = Dialog(calendars=calendars)
     dlg.show()
     sys.exit(app.exec())
