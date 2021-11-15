@@ -48,9 +48,12 @@ class Event(NamedTuple):
 
     description: Optional[str] = None
 
-    def localize(self, obj: datetime, tz_name):
-        tz = pytz.timezone(tz_name)
-        return obj.astimezone(tz)
+    def localize(self, obj: Union[datetime, date], tz_name):
+        if type(obj) is datetime:
+            tz = pytz.timezone(tz_name)
+            return obj.astimezone(tz)
+        else:
+            return obj
 
     def local_start(self, tz_name):
         return self.localize(self.start, tz_name)
@@ -152,15 +155,17 @@ class Calendars(GroupedObject):
 class Events(GroupedObject):
     """A collection of Event objects with methods for sqlite3"""
 
-    def __init__(self, events: list[Event] = None, window: Union[tuple[datetime, datetime], None] = None):
+    def __init__(
+        self, events: list[Event] = None, window: Union[tuple[datetime, datetime], None] = None, limit: int = 0
+    ):
         if events is None:
-            events = self._read(window)
+            events = self._read(window, limit)
         super().__init__(obj=events)
 
     def __repr__(self):
         return f"Events([{', '.join([repr(cal) for cal in self.group])}])"
 
-    def _read(self, window: Union[tuple[datetime, datetime], None] = None):
+    def _read(self, window: Union[tuple[datetime, datetime], None] = None, limit: int = 0):
         con = sqlite3.connect(DB_PATH, detect_types=sqlite3.PARSE_COLNAMES)
 
         con.row_factory = lambda x, y: Event(*y)
@@ -171,8 +176,6 @@ class Events(GroupedObject):
 
             join = ""
             where = ""
-            order_by = ""
-            limit = ""
         else:
             vars.pop(0)
             vars.insert(0, "events.id")
@@ -180,8 +183,13 @@ class Events(GroupedObject):
 
             join = "INNER JOIN calendars ON events.calendar_id = calendars.id"
             where = "WHERE start BETWEEN ? and ? AND active = 1"
-            order_by = "ORDER BY start"
-            limit = "LIMIT 1"
+
+        order_by = "ORDER BY start"
+
+        if not limit:
+            limit_str = ""
+        else:
+            limit_str = f"LIMIT {limit}"
 
         query = f"""SELECT 
         {", ".join(vars)}
@@ -189,7 +197,7 @@ class Events(GroupedObject):
         {join}
         {where}
         {order_by}
-        {limit}
+        {limit_str}
         """
 
         with con:
