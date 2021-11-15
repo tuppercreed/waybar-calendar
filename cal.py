@@ -48,6 +48,16 @@ class Event(NamedTuple):
 
     description: Optional[str] = None
 
+    def localize(self, obj: datetime, tz_name):
+        tz = pytz.timezone(tz_name)
+        return obj.astimezone(tz)
+
+    def local_start(self, tz_name):
+        return self.localize(self.start, tz_name)
+
+    def local_end(self, tz_name):
+        return self.localize(self.end, tz_name)
+
 
 class Calendar(NamedTuple):
     """Class for Calendar information.
@@ -140,25 +150,53 @@ class Calendars(GroupedObject):
 
 
 class Events(GroupedObject):
-    def __init__(self, events: list[Event] = None):
+    """A collection of Event objects with methods for sqlite3"""
+
+    def __init__(self, events: list[Event] = None, window: Union[tuple[datetime, datetime], None] = None):
         if events is None:
-            events = self._read()
+            events = self._read(window)
         super().__init__(obj=events)
 
     def __repr__(self):
         return f"Events([{', '.join([repr(cal) for cal in self.group])}])"
 
-    def _read(self):
+    def _read(self, window: Union[tuple[datetime, datetime], None] = None):
         con = sqlite3.connect(DB_PATH, detect_types=sqlite3.PARSE_COLNAMES)
 
         con.row_factory = lambda x, y: Event(*y)
 
+        vars = ["id", "calendar_id", "start AS 'start [datetime]'", "end AS 'end [datetime]'"]
+        if window is None:
+            vars += ["name", "description"]
+
+            join = ""
+            where = ""
+            order_by = ""
+            limit = ""
+        else:
+            vars.pop(0)
+            vars.insert(0, "events.id")
+            vars += ["events.name", "events.description"]
+
+            join = "INNER JOIN calendars ON events.calendar_id = calendars.id"
+            where = "WHERE start BETWEEN ? and ? AND active = 1"
+            order_by = "ORDER BY start"
+            limit = "LIMIT 1"
+
+        query = f"""SELECT 
+        {", ".join(vars)}
+        FROM events
+        {join}
+        {where}
+        {order_by}
+        {limit}
+        """
+
         with con:
-            results = list(
-                con.execute(
-                    "SELECT id, calendar_id, start AS 'start [datetime]', end AS 'end [datetime]', name, description FROM events;"
-                )
-            )
+            if window is None:
+                results = list(con.execute(query))
+            else:
+                results = list(con.execute(query, (window[0], window[1])))
 
         return results
 
