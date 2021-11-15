@@ -1,4 +1,4 @@
-import os, sqlite3
+import os
 from datetime import datetime, timezone
 
 from google.auth import credentials
@@ -7,7 +7,7 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib import flow
 from googleapiclient.discovery import build
 
-from cal import Calendar, Calendars
+from cal import Calendar, Calendars, Event, Events
 
 
 def authorize(cred_path, launch_browser=True):
@@ -60,6 +60,8 @@ def getEvent(calendar_id):
 
     found_events = 0
 
+    events_collected = []
+
     while True:
         events = (
             service.events()
@@ -77,56 +79,34 @@ def getEvent(calendar_id):
         event_tuples = []
         for event in events["items"]:
             if "dateTime" in event["start"]:
-                start = event["start"]["dateTime"]
-                end = event["end"]["dateTime"]
-                type_name = "timed"
+                start = datetime.fromisoformat(event["start"]["dateTime"]).astimezone(timezone.utc)
+                end = datetime.fromisoformat(event["end"]["dateTime"]).astimezone(timezone.utc)
             else:
-                start = event["start"]["date"]
-                end = event["end"]["date"]
-                type_name = "allday"
-            event_tuple = (event["id"], calendar_id, start, end, event["summary"], type_name)
-            event_tuples.append(event_tuple)
+                start = datetime.fromisoformat(event["start"]["date"]).date()
+                end = datetime.fromisoformat(event["end"]["date"]).date()
+            if "description" in event:
+                description = event["description"]
+            else:
+                description = None
+            event_tuples.append(
+                Event(
+                    id=event["id"],
+                    calendar_id=calendar_id,
+                    start=start,
+                    end=end,
+                    name=event["summary"],
+                    description=description,
+                )
+            )
             print(f"---- Event: {event['summary']} at {event['start']} ending {event['end']}")
 
-        write_sql_events(event_tuples)
+        events_collected += event_tuples
 
         page_token = events.get("nextPageToken")
         if not page_token or found_events > 5:
             break
 
-
-def write_sql_calendars(calendars):
-    dir_path = os.path.dirname(os.path.realpath(__file__))
-    path = f"{dir_path}/cal.db"
-    con = sqlite3.connect(path)
-    cur = con.cursor()
-
-    cur.execute(
-        "CREATE TABLE IF NOT EXISTS calendars (id TEXT PRIMARY KEY NOT NULL, summary TEXT, timeZone TEXT, active INTEGER, UNIQUE(id));"
-    )
-    cur.executemany("INSERT OR REPLACE INTO calendars (id, summary, timeZone) VALUES (?, ?, ?)", calendars)
-    con.commit()
-
-    con.close()
-
-
-def write_sql_events(events):
-    dir_path = os.path.dirname(os.path.realpath(__file__))
-    path = f"{dir_path}/cal.db"
-    con = sqlite3.connect(path)
-    cur = con.cursor()
-
-    cur.execute(
-        "CREATE TABLE IF NOT EXISTS events (uid TEXT PRIMARY KEY NOT NULL, calendar_id TEXT, start TEXT, end TEXT, title TEXT, description TEXT, type TEXT, UNIQUE(uid));"
-    )
-
-    cur.executemany(
-        "INSERT OR REPLACE INTO events (uid, calendar_id, start, end, title, type) VALUES (?, ?, ?, ?, ?, ?)", events
-    )
-
-    con.commit()
-
-    con.close()
+    return events_collected
 
 
 if __name__ == "__main__":
@@ -158,7 +138,12 @@ if __name__ == "__main__":
         calendars = Calendars(cals)
         calendars.write()
 
+    events_list = []
+
     for calendar_list_entry in calendar_list["items"]:
         print(f"Calendar: {calendar_list_entry['summary']}")
 
-        getEvent(calendar_list_entry["id"])
+        events_list += getEvent(calendar_list_entry["id"])
+
+    events = Events(events_list)
+    events.write()
