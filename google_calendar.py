@@ -41,7 +41,7 @@ def authorize(cred_path, launch_browser=True):
     return creds
 
 
-def getCalendarList():
+def getCalendarList(service):
     calendar_list = None
     page_token = None
     while True:
@@ -54,13 +54,13 @@ def getCalendarList():
     return calendar_list
 
 
-def getEvent(calendar_id):
+def getEvent(service, calendar_id):
     page_token = None
     now = datetime.now(timezone.utc).isoformat()
 
     found_events = 0
 
-    events_collected = []
+    events_collected = {}
 
     while True:
         events = (
@@ -76,7 +76,7 @@ def getEvent(calendar_id):
             .execute()
         )
         found_events += len(events)
-        event_tuples = []
+        event_tuples = {}
         for event in events["items"]:
             if "dateTime" in event["start"]:
                 start = datetime.fromisoformat(event["start"]["dateTime"]).astimezone(timezone.utc)
@@ -88,19 +88,17 @@ def getEvent(calendar_id):
                 description = event["description"]
             else:
                 description = None
-            event_tuples.append(
-                Event(
-                    id=event["id"],
-                    calendar_id=calendar_id,
-                    start=start,
-                    end=end,
-                    name=event["summary"],
-                    description=description,
-                )
+            event_tuples[event["id"]] = Event(
+                id=event["id"],
+                calendar_id=calendar_id,
+                start=start,
+                end=end,
+                name=event["summary"],
+                description=description,
             )
             print(f"---- Event: {event['summary']} at {event['start']} ending {event['end']}")
 
-        events_collected += event_tuples
+        events_collected.update(event_tuples)
 
         page_token = events.get("nextPageToken")
         if not page_token or found_events > 5:
@@ -109,11 +107,8 @@ def getEvent(calendar_id):
     return events_collected
 
 
-if __name__ == "__main__":
-    creds = authorize("secrets.json")
-    service = build("calendar", "v3", credentials=creds)
-
-    calendar_list = getCalendarList()
+def createCalendars(service):
+    calendar_list = getCalendarList(service)
 
     vars = {
         "id": "id",
@@ -122,7 +117,7 @@ if __name__ == "__main__":
         "timeZone": "time_zone",
         "selected": "active",
     }
-    cals = []
+    cals = {}
 
     for calendar in calendar_list["items"]:
         found_vars = {}
@@ -132,13 +127,49 @@ if __name__ == "__main__":
         if "summaryOverride" in calendar:
             found_vars["name"] = calendar["summaryOverride"]
 
-        cals.append(Calendar(**found_vars))
+        cals[found_vars["id"]] = Calendar(**found_vars)
 
     if len(cals) > 0:
         calendars = Calendars(cals)
         calendars.write()
 
+    return calendars, calendar_list
+
+
+def sync_calendars():
+    creds = authorize("secrets.json")
+    service = build("calendar", "v3", credentials=creds)
+
+    calendars, calendar_list = createCalendars(service)
+
+    calendars.write()
+    return calendars
+
+
+def sync_events(calendars: Calendars):
+    creds = authorize("secrets.json")
+    service = build("calendar", "v3", credentials=creds)
+
+    events_list = {}
+    for id, calendar in calendars.active().items():
+        print(f"Calendar: {calendar}")
+        events_list.update(getEvent(service, id))
+
+    events = Events(events_list)
+    events.write()
+
+
+if __name__ == "__main__":
+    creds = authorize("secrets.json")
+    service = build("calendar", "v3", credentials=creds)
+
+    calendars, calendar_list = createCalendars(service)
+
     events_list = []
+
+    for calendar in calendars.active():
+        print(f"Calendar: {calendar}")
+        events_list += getEvent(calendar)
 
     for calendar_list_entry in calendar_list["items"]:
         print(f"Calendar: {calendar_list_entry['summary']}")
