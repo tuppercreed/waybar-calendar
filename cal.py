@@ -1,8 +1,8 @@
 import os, sqlite3
-from collections.abc import MutableSequence
+from collections.abc import MutableMapping
+from collections import defaultdict
 from datetime import datetime, date
 import pytz
-from sqlite3.dbapi2 import PARSE_DECLTYPES
 from typing import NamedTuple, Optional, Union
 
 dir_path = os.path.dirname(os.path.realpath(__file__))
@@ -62,59 +62,85 @@ class Event(NamedTuple):
         return self.localize(self.end, tz_name)
 
 
+CALENDAR_DOWNLOADED_INFO = ("name", "description", "time_zone")
+CALENDAR_PROGRAM_INFO = ("id", "active")
+
+
 class Calendar(NamedTuple):
     """Class for Calendar information.
     Attributes mirror the columns of sqlite3 table calendars"""
 
+    # Downloaded Information
     id: str
     name: str
-
     description: Optional[str] = None
     time_zone: str = pytz.utc.zone
+
+    # Program Information
     active: bool = False
     # events: list[Event] = []
 
 
-class GroupedObject(MutableSequence):
+class GroupedObject(MutableMapping):
     """A collection of objects intended to be inherited by Calendars and Events"""
 
-    def __init__(self, obj: list[Union[NamedTuple, Event, Calendar]] = None):
-        self.group = obj
-        super().__init__()
+    def __init__(self, *args, **kwargs):
+        """Use the object dict"""
+        self.__dict__.update(*args, **kwargs)
 
-    def __getitem__(self, i):
-        return self.group[i]
+    def __getitem__(self, key):
+        return self.__dict__[key]
 
-    def __delitem__(self, i):
-        del self.group[i]
+    def __delitem__(self, key):
+        del self.__dict__[key]
 
-    def __setitem__(self, i, new_value):
-        self.group[i] = new_value
+    def __setitem__(self, key, value):
+        self.__dict__[key] = value
 
-    def insert(self, i, new_value):
-        self.group.insert(i, new_value)
+    def __iter__(self):
+        return iter(self.__dict__)
 
     def __len__(self):
-        return len(self.group)
+        return len(self.__dict__)
 
     def __repr__(self):
-        return f"GroupedObject([{', '.join([repr(cal) for cal in self.group])}])"
+        return "{}, GroupedObject({})".format(super(GroupedObject, self).__repr__(), self.__dict__)
 
     def __str__(self):
-        return f"[{', '.join([str(cal) for cal in self.group])}]"
+        return f"[{', '.join([str(cal) for cal in self.__dict__])}]"
 
 
 class Calendars(GroupedObject):
     """A collection of Calendar objects with methods for sqlite3"""
 
-    def __init__(self, calendars: list[Calendar] = None):
-        if calendars is None:
-            calendars = self._read()
+    def __init__(self, calendars: dict[str, Calendar] = None):
+        read_calendars = self._read()
+        if calendars is not None:
+            calendars = self.resolve_calendars(read_calendars, calendars)
+        else:
+            calendars = read_calendars
 
-        super().__init__(obj=calendars)
+        super().__init__(**calendars)
 
     def __repr__(self):
-        return f"Calendars([{', '.join([repr(cal) for cal in self.group])}])"
+        return f"Calendars([{', '.join([repr(cal) for cal in self.__dict__])}])"
+
+    def resolve_calendars(self, c1: dict[str, Calendar], c2: dict[str, Calendar]):
+        """Overrides downloaded information in c1 with any information in c2 and returns completed c1"""
+        for id, calendar in c2.items():
+            if id in c1:
+                attrs = {}
+                for elem in CALENDAR_DOWNLOADED_INFO:
+                    attrs[elem] = getattr(calendar, elem)
+                for elem in CALENDAR_PROGRAM_INFO:
+                    attrs[elem] = getattr(c1[id], elem)
+                c1[id] = Calendar(**attrs)
+            c1[id] = calendar
+
+        return c1
+
+    def active(self):
+        return {key: value for key, value in self.__dict__.items() if value.active}
 
     def write(self):
         """write all calendars to sqlite3 database"""
@@ -126,7 +152,7 @@ class Calendars(GroupedObject):
         with con:
             con.executemany(
                 "INSERT OR REPLACE INTO calendars (id, name, description, time_zone, active) VALUES (?, ?, ?, ?, ?)",
-                self.group,
+                self.__dict__.values(),
             )
 
     def _read(self):
@@ -143,27 +169,29 @@ class Calendars(GroupedObject):
                 )
             )
 
-        return results
+        results_dict = {cal.id: cal for cal in results}
+
+        return results_dict
 
     def _pool_events(self, events):
         cal_ids = {cal.id: i for i, cal in enumerate(self._calendars)}
 
         for event in events:
-            self.group[cal_ids[event.cal_id]].events.append(event)
+            self.__dict__[cal_ids[event.cal_id]].events.append(event)
 
 
 class Events(GroupedObject):
     """A collection of Event objects with methods for sqlite3"""
 
     def __init__(
-        self, events: list[Event] = None, window: Union[tuple[datetime, datetime], None] = None, limit: int = 0
+        self, events: dict[str, Event] = None, window: Union[tuple[datetime, datetime], None] = None, limit: int = 0
     ):
         if events is None:
             events = self._read(window, limit)
-        super().__init__(obj=events)
+        super().__init__(**events)
 
     def __repr__(self):
-        return f"Events([{', '.join([repr(cal) for cal in self.group])}])"
+        return f"Events([{', '.join([repr(cal) for cal in self.__dict__])}])"
 
     def _read(self, window: Union[tuple[datetime, datetime], None] = None, limit: int = 0):
         con = sqlite3.connect(DB_PATH, detect_types=sqlite3.PARSE_COLNAMES)
@@ -206,7 +234,9 @@ class Events(GroupedObject):
             else:
                 results = list(con.execute(query, (window[0], window[1])))
 
-        return results
+        results_dict = {event.id: event for event in results}
+
+        return results_dict
 
     def write(self):
         """write all events to sqlite3 database"""
@@ -218,13 +248,26 @@ class Events(GroupedObject):
         with con:
             con.executemany(
                 "INSERT OR REPLACE INTO events (id, calendar_id, start, end, name, description) VALUES (?, ?, ?, ?, ?, ?)",
-                self.group,
+                self.__dict__.values(),
             )
+
+    def group(self, TZ_NAME, interval: Union[str, None] = None):
+        """Takes a str interval as a strftime format code
+        Returns a dictionary of lists of Event, split by the result of the format code"""
+        if interval is None:
+            interval = "%Y-%m-%d"
+        split = defaultdict(list)
+        for event in self.__dict__.values():
+            split[event.local_start(TZ_NAME).strftime(interval)].append(event)
+
+        return split
 
 
 if __name__ == "__main__":
 
     events = Events()
+
+    events.group()
 
     cals = Calendars()
 
@@ -233,6 +276,6 @@ if __name__ == "__main__":
     cal = Calendar("1", "The first calendar", "Such a long description", "US/Eastern", True)
     cal2 = Calendar("2", "Second cal")
 
-    cals = Calendars([cal, cal2])
+    cals = Calendars({"1": cal, "2": cal2})
 
     cals.write()
